@@ -1,8 +1,6 @@
 streamlit
 numpy
 pandas
-matplotlib
 math
-ScalarFormatter
 matplotlib.ticker
 matplotlib.pyplot
