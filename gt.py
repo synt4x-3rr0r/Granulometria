@@ -2,7 +2,6 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.express as px
-import math
 
 # Configuración de la página
 st.set_page_config(page_title="Análisis Granulométrico", layout="wide")
@@ -105,10 +104,7 @@ st.dataframe(df[display_columns].style.format({
 curve_df = df[df['Abertura (mm)'] > 0].copy()
 curve_df = curve_df[curve_df['Pasa (%)'] >= 0]
 
-# Crear curva granulométrica con Plotly Express
-st.subheader("CURVA DE DISTRIBUCIÓN GRANULOMÉTRICA")
-
-# Función de interpolación lineal personalizada
+# Función de interpolación lineal personalizada sin usar math
 def interpolar_lineal_log(x, y, valor_y):
     """
     Interpola en espacio logarítmico para encontrar x dado un valor_y
@@ -129,9 +125,9 @@ def interpolar_lineal_log(x, y, valor_y):
     for i in range(len(y_sorted) - 1):
         y0, y1 = y_sorted[i], y_sorted[i+1]
         if (y0 <= valor_y <= y1) or (y1 <= valor_y <= y0):
-            # Trabajar en espacio logarítmico
-            log_x0 = math.log10(x_sorted[i])
-            log_x1 = math.log10(x_sorted[i+1])
+            # Trabajar en espacio logarítmico usando numpy
+            log_x0 = np.log10(x_sorted[i])
+            log_x1 = np.log10(x_sorted[i+1])
             
             # Calcular pendiente
             m = (log_x1 - log_x0) / (y1 - y0) if y1 != y0 else 0
@@ -148,9 +144,9 @@ def interpolar_lineal_log(x, y, valor_y):
         i = np.argmax(y_sorted)
         j = i-1 if i > 0 else i+1
     
-    # Trabajar en espacio logarítmico
-    log_x0 = math.log10(x_sorted[i])
-    log_x1 = math.log10(x_sorted[j])
+    # Trabajar en espacio logarítmico usando numpy
+    log_x0 = np.log10(x_sorted[i])
+    log_x1 = np.log10(x_sorted[j])
     
     # Calcular pendiente
     m = (log_x1 - log_x0) / (y_sorted[j] - y_sorted[i]) if y_sorted[j] != y_sorted[i] else 0
@@ -158,6 +154,37 @@ def interpolar_lineal_log(x, y, valor_y):
     # Extrapolar
     log_x = log_x0 + m * (valor_y - y_sorted[i])
     return 10**log_x
+
+# Crear curva granulométrica con Plotly Express
+st.subheader("CURVA DE DISTRIBUCIÓN GRANULOMÉTRICA")
+
+# Configurar la figura de Plotly
+fig = px.line(curve_df, x='Abertura (mm)', y='Pasa (%)', 
+              log_x=True, 
+              labels={'Abertura (mm)': 'Abertura de tamices (mm) (Escala logarítmica)', 'Pasa (%)': '% Pasa'},
+              title='CURVA DE DISTRIBUCIÓN GRANULOMÉTRICA')
+
+# Invertir el eje X para que vaya de mayor a menor
+fig.update_xaxes(autorange="reversed")
+
+# Configurar ticks del eje X
+fig.update_xaxes(
+    tickvals=[0.01, 0.1, 1, 10, 100],
+    ticktext=["0.01", "0.1", "1", "10", "100"]
+)
+
+# Configurar ticks del eje Y cada 10%
+fig.update_yaxes(
+    tickvals=list(range(0, 101, 10)),
+    range=[0, 100]
+)
+
+# Agregar cuadrícula
+fig.update_layout(
+    plot_bgcolor='white',
+    xaxis=dict(showgrid=True, gridwidth=1, gridcolor='lightgray'),
+    yaxis=dict(showgrid=True, gridwidth=1, gridcolor='lightgray')
+)
 
 # Calcular D10, D30, D60 mediante interpolación personalizada
 try:
@@ -174,55 +201,23 @@ try:
     Cu = D60 / D10
     Cc = (D30**2) / (D10 * D60)
     
-    # Crear figura con Plotly Express
-    fig = px.line(curve_df, x='Abertura (mm)', y='Pasa (%)', 
-                  log_x=True, 
-                  markers=True,
-                  title='CURVA DE DISTRIBUCIÓN GRANULOMÉTRICA',
-                  labels={'Abertura (mm)': 'Abertura de tamices (mm) - Escala Logarítmica'})
-    
-    # Personalizar gráfica
-    fig.update_layout(
-        xaxis_title="Abertura de tamices (mm)",
-        yaxis_title="% Pasa",
-        title_font=dict(size=18, family="Arial", color="black"),
-        xaxis=dict(
-            type='log',
-            autorange='reversed',  # Invertir eje X
-            tickvals=[0.01, 0.1, 1, 10, 100],
-            showgrid=True,
-            gridcolor='lightgray'
-        ),
-        yaxis=dict(
-            range=[0, 100],
-            tickvals=list(range(0, 101, 10)),
-            showgrid=True,
-            gridcolor='lightgray'
-        ),
-        plot_bgcolor='white'
-    )
-    
-    # Agregar líneas horizontales
-    for pct, color, name in zip([10, 30, 60], ['red', 'green', 'blue'], ['D10', 'D30', 'D60']):
-        fig.add_hline(y=pct, line_dash="dash", line_color=color, opacity=0.7)
-    
-    # Agregar líneas verticales y puntos
-    for pct, diam, color, label in zip([10, 30, 60], [D10, D30, D60], 
-                                      ['red', 'green', 'blue'], ['D10', 'D30', 'D60']):
-        fig.add_vline(x=diam, line_dash="dash", line_color=color, opacity=0.7)
-        fig.add_scatter(x=[diam], y=[pct], mode='markers', 
-                       marker=dict(size=10, color=color, symbol='circle-open'),
-                       name=label)
-        fig.add_annotation(x=diam, y=pct, 
-                          text=f"{label} = {diam:.3f} mm",
-                          showarrow=True,
-                          arrowhead=1,
-                          ax=20,
-                          ay=-30,
-                          font=dict(size=10, color=color))
-    
-    # Mostrar gráfica
-    st.plotly_chart(fig, use_container_width=True)
+    # Añadir líneas horizontales y verticales
+    for pct, diam, color, label in zip(
+        [10, 30, 60],
+        [D10, D30, D60],
+        ['red', 'green', 'blue'],
+        ['D10', 'D30', 'D60']
+    ):
+        fig.add_hline(y=pct, line_dash="dot", line_color=color, opacity=0.7)
+        fig.add_vline(x=diam, line_dash="dot", line_color=color, opacity=0.7)
+        fig.add_scatter(
+            x=[diam], y=[pct],
+            mode='markers+text',
+            marker=dict(size=10, color=color, line=dict(width=2, color=color)),
+            text=[f"{label} = {diam:.3f} mm"],
+            textposition="top right",
+            showlegend=False
+        )
     
     # Mostrar resultados
     st.success("Parámetros granulométricos calculados:")
@@ -283,6 +278,9 @@ try:
 except Exception as e:
     st.error(f"Error en interpolación: {str(e)}. Verifique los datos de entrada. Asegúrese de que los datos de porcentaje que pasa sean adecuados para la interpolación.")
 
+# Mostrar gráfica
+st.plotly_chart(fig, use_container_width=True)
+
 # Instrucciones de uso
 with st.expander("Instrucciones de Uso"):
     st.markdown("""
@@ -339,7 +337,6 @@ with st.expander("Instrucciones de Uso"):
     
     ## Características de la Gráfica
     - Eje X invertido (de mayor a menor tamaño)
-    - Valores en formato decimal (sin exponentes)
+    - Escala logarítmica en el eje X
     - Líneas de referencia para D10, D30, D60
-    - Gráfica interactiva: puede hacer zoom y desplazarse
     """)
