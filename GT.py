@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import math
-from matplotlib.ticker import ScalarFormatter
+import matplotlib.ticker 
 
 # Configuración de la página
 st.set_page_config(page_title="Análisis Granulométrico", layout="wide")
