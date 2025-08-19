@@ -1,342 +1,267 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
-import plotly.express as px
+import numpy as np
+import matplotlib.pyplot as plt
 
-# Configuración de la página
-st.set_page_config(page_title="Análisis Granulométrico", layout="wide")
-st.title("Análisis Granulométrico de Suelos")
+# --- Configuración de la Página ---
+st.set_page_config(
+    page_title="Análisis Granulométrico",
+    page_icon="grain",
+    layout="wide"
+)
 
-# Datos de tamices estandarizados
-tamices_data = {
-    "Tamiz": ['3"', '2 1/2"', '2"', '1 1/2"', '1"', '3/4"', '1/2"', '3/8"', '1/4"', 
-             'N°4', 'N°10', 'N°20', 'N°40', 'N°60', 'N°100', 'N°200', 'Fondo'],
-    "Abertura (mm)": [76.2, 63.5, 50.8, 38.1, 25.4, 19.1, 12.7, 9.52, 6.35, 
-                      4.75, 2.00, 0.85, 0.425, 0.25, 0.150, 0.075, 0]
+# --- Datos Constantes ---
+TAMICES = {
+    "3\"": 76.2,
+    "2\"": 50.8,
+    "1 1/2\"": 38.1,
+    "1\"": 25.4,
+    "3/4\"": 19.05,
+    "1/2\"": 12.7,
+    "3/8\"": 9.525,
+    "1/4\"": 6.35,
+    "No. 4": 4.75,
+    "No. 10": 2.00,
+    "No. 20": 0.850,
+    "No. 40": 0.425,
+    "No. 60": 0.250,
+    "No. 100": 0.150,
+    "No. 200": 0.075,
+    "Fondo": 0.00
 }
 
-# Crear DataFrame inicial
-df = pd.DataFrame(tamices_data)
+# --- Funciones de Cálculo ---
 
-# Entrada de datos en el sidebar
-with st.sidebar:
-    st.header("Datos de Entrada")
-    
-    # Sección destacada para el botón de corrección
-    st.subheader("Opciones de Corrección")
-    forzar_correccion = st.checkbox("Aplicar corrección de masas", value=False,
-                                   help="Activar para aplicar corrección incluso con diferencias pequeñas")
-    
-    masa_total = st.number_input("Masa Total de la Muestra (gr):", min_value=0.1, value=1000.0)
-    
-    st.subheader("Masa Retenida por Tamiz (gr):")
-    masa_retenida = []
-    for tamiz in df['Tamiz']:
-        masa = st.number_input(f"{tamiz}:", min_value=0.0, value=0.0, key=tamiz)
-        masa_retenida.append(masa)
-    
-    df['Masa Ret. (gr)'] = masa_retenida
-
-# Verificar consistencia de datos
-sum_masa_retenida = df['Masa Ret. (gr)'].sum()
-diferencia = masa_total - sum_masa_retenida
-tolerancia = 1.0  # Tolerancia absoluta de 1 gramo
-aplicar_correccion = False
-
-# Lógica de corrección
-if abs(diferencia) > 0:  # Solo si hay diferencia
-    if abs(diferencia) > tolerancia or forzar_correccion:
-        aplicar_correccion = True
-        st.warning(f"⚠️ La suma de masas retenidas ({sum_masa_retenida:.2f} gr) difiere de la masa total ({masa_total:.2f} gr) en {diferencia:.2f} gr")
-        
-        # Guardar masas originales
-        df['Masa Ret. Original (gr)'] = df['Masa Ret. (gr)']
-        
-        # Calcular y aplicar corrección específica
-        if sum_masa_retenida > 0:
-            df['Masa Ret. (gr)'] = df['Masa Ret. (gr)'] + (df['Masa Ret. (gr)'] / sum_masa_retenida) * diferencia
-        else:
-            # Si no hay masas retenidas, distribuir uniformemente
-            num_tamices = len(df[df['Tamiz'] != 'Fondo'])
-            df.loc[df['Tamiz'] != 'Fondo', 'Masa Ret. (gr)'] = masa_total / num_tamices
-        
-        st.success(f"✅ Se aplicó corrección específica: Masa corregida total = {df['Masa Ret. (gr)'].sum():.2f} gr")
-        
-        # Mostrar tabla con comparación
-        st.subheader("Comparación de Masas (Original vs Corregido)")
-        correccion_df = df[['Tamiz', 'Masa Ret. Original (gr)', 'Masa Ret. (gr)']].copy()
-        correccion_df['Diferencia (gr)'] = correccion_df['Masa Ret. (gr)'] - correccion_df['Masa Ret. Original (gr)']
-        correccion_df['Corrección (%)'] = (correccion_df['Diferencia (gr)'] / correccion_df['Masa Ret. Original (gr)']).replace(np.inf, 0) * 100
-        
-        st.dataframe(correccion_df.style.format({
-            'Masa Ret. Original (gr)': '{:.2f}',
-            'Masa Ret. (gr)': '{:.2f}',
-            'Diferencia (gr)': '{:.2f}',
-            'Corrección (%)': '{:.2f}%'
-        }))
-    else:
-        st.success("✅ La suma de masas retenidas coincide con la masa total (diferencia ≤ 1g)")
-else:
-    st.success("✅ La suma de masas retenidas coincide exactamente con la masa total")
-
-# Cálculos granulométricos con masas corregidas
-df['Retenido (%)'] = (df['Masa Ret. (gr)'] / masa_total) * 100
-df['Ret. Acum. (%)'] = df['Retenido (%)'].cumsum()
-df['Pasa (%)'] = 100 - df['Ret. Acum. (%)']
-
-# Crear tabla de resultados
-st.subheader("Resultados del Análisis Granulométrico")
-# Seleccionar columnas a mostrar basado en si se aplicó corrección
-display_columns = ['Tamiz', 'Abertura (mm)', 'Masa Ret. (gr)', 'Retenido (%)', 'Ret. Acum. (%)', 'Pasa (%)']
-if 'Masa Ret. Original (gr)' in df.columns:
-    display_columns.insert(3, 'Masa Ret. Original (gr)')
-
-st.dataframe(df[display_columns].style.format({
-    'Abertura (mm)': '{:.2f}',
-    'Masa Ret. Original (gr)': '{:.2f}',
-    'Masa Ret. (gr)': '{:.2f}',
-    'Retenido (%)': '{:.2f}',
-    'Ret. Acum. (%)': '{:.2f}',
-    'Pasa (%)': '{:.2f}'
-}))
-
-# Filtrar datos para la curva (excluyendo fondo y valores sin muestra)
-curve_df = df[df['Abertura (mm)'] > 0].copy()
-curve_df = curve_df[curve_df['Pasa (%)'] >= 0]
-
-# Función de interpolación lineal personalizada sin usar math
-def interpolar_lineal_log(x, y, valor_y):
+def calcular_granulometria(masas_retenidas, masa_inicial):
     """
-    Interpola en espacio logarítmico para encontrar x dado un valor_y
-    x: tamaños de abertura (mm)
-    y: porcentaje que pasa (%)
-    valor_y: valor de porcentaje para el cual encontrar el tamaño correspondiente
+    Realiza todos los cálculos del análisis granulométrico con el método de corrección
+    aditivo y proporcional.
     """
-    # Convertir a arrays de numpy
-    x = np.array(x)
-    y = np.array(y)
     
-    # Ordenar los datos por tamaño (de menor a mayor)
-    sorted_indices = np.argsort(x)
-    x_sorted = x[sorted_indices]
-    y_sorted = y[sorted_indices]
-    
-    # Encontrar índices adyacentes
-    for i in range(len(y_sorted) - 1):
-        y0, y1 = y_sorted[i], y_sorted[i+1]
-        if (y0 <= valor_y <= y1) or (y1 <= valor_y <= y0):
-            # Trabajar en espacio logarítmico usando numpy
-            log_x0 = np.log10(x_sorted[i])
-            log_x1 = np.log10(x_sorted[i+1])
-            
-            # Calcular pendiente
-            m = (log_x1 - log_x0) / (y1 - y0) if y1 != y0 else 0
-            
-            # Interpolar
-            log_x = log_x0 + m * (valor_y - y0)
-            return 10**log_x
-    
-    # Si no se encuentra dentro del rango, extrapolar con los puntos más cercanos
-    if valor_y < min(y_sorted):
-        i = np.argmin(y_sorted)
-        j = i+1 if i < len(y_sorted)-1 else i-1
-    else:
-        i = np.argmax(y_sorted)
-        j = i-1 if i > 0 else i+1
-    
-    # Trabajar en espacio logarítmico usando numpy
-    log_x0 = np.log10(x_sorted[i])
-    log_x1 = np.log10(x_sorted[j])
-    
-    # Calcular pendiente
-    m = (log_x1 - log_x0) / (y_sorted[j] - y_sorted[i]) if y_sorted[j] != y_sorted[i] else 0
-    
-    # Extrapolar
-    log_x = log_x0 + m * (valor_y - y_sorted[i])
-    return 10**log_x
+    # 1. Crear DataFrame inicial
+    data = []
+    for nombre, apertura in TAMICES.items():
+        data.append({
+            "Tamiz": nombre,
+            "Apertura (mm)": apertura,
+            "Masa Retenida (g)": masas_retenidas.get(nombre, 0.0)
+        })
+    df = pd.DataFrame(data)
 
-# Crear curva granulométrica con Plotly Express
-st.subheader("CURVA DE DISTRIBUCIÓN GRANULOMÉTRICA")
-
-# Configurar la figura de Plotly
-fig = px.line(curve_df, x='Abertura (mm)', y='Pasa (%)', 
-              log_x=True, 
-              labels={'Abertura (mm)': 'Abertura de tamices (mm) (Escala logarítmica)', 'Pasa (%)': '% Pasa'},
-              title='CURVA DE DISTRIBUCIÓN GRANULOMÉTRICA')
-
-# Invertir el eje X para que vaya de mayor a menor
-fig.update_xaxes(autorange="reversed")
-
-# Configurar ticks del eje X
-fig.update_xaxes(
-    tickvals=[0.01, 0.1, 1, 10, 100],
-    ticktext=["0.01", "0.1", "1", "10", "100"]
-)
-
-# Configurar ticks del eje Y cada 10%
-fig.update_yaxes(
-    tickvals=list(range(0, 101, 10)),
-    range=[0, 100]
-)
-
-# Agregar cuadrícula
-fig.update_layout(
-    plot_bgcolor='white',
-    xaxis=dict(showgrid=True, gridwidth=1, gridcolor='lightgray'),
-    yaxis=dict(showgrid=True, gridwidth=1, gridcolor='lightgray')
-)
-
-# Calcular D10, D30, D60 mediante interpolación personalizada
-try:
-    # Preparar datos para interpolación
-    x = curve_df['Abertura (mm)'].values
-    y = curve_df['Pasa (%)'].values
+    # 2. Corrección de Masas (MÉTODO CORREGIDO)
+    masa_final_medida = df["Masa Retenida (g)"].sum()
+    mensaje_correccion = ""
     
-    # Calcular diámetros efectivos
-    D10 = interpolar_lineal_log(x, y, 10)
-    D30 = interpolar_lineal_log(x, y, 30)
-    D60 = interpolar_lineal_log(x, y, 60)
-    
-    # Calcular coeficientes
-    Cu = D60 / D10
-    Cc = (D30**2) / (D10 * D60)
-    
-    # Añadir líneas horizontales y verticales
-    for pct, diam, color, label in zip(
-        [10, 30, 60],
-        [D10, D30, D60],
-        ['red', 'green', 'blue'],
-        ['D10', 'D30', 'D60']
-    ):
-        fig.add_hline(y=pct, line_dash="dot", line_color=color, opacity=0.7)
-        fig.add_vline(x=diam, line_dash="dot", line_color=color, opacity=0.7)
-        fig.add_scatter(
-            x=[diam], y=[pct],
-            mode='markers+text',
-            marker=dict(size=10, color=color, line=dict(width=2, color=color)),
-            text=[f"{label} = {diam:.3f} mm"],
-            textposition="top right",
-            showlegend=False
+    # Se aplica corrección si la diferencia es significativa (ej. > 0.01g)
+    if masa_final_medida > 0 and abs(masa_inicial - masa_final_medida) > 0.01:
+        diferencia_neta = masa_inicial - masa_final_medida
+        
+        # Calcular el % de aporte de cada tamiz sobre la masa total medida
+        df["% Aporte Inicial"] = (df["Masa Retenida (g)"] / masa_final_medida) * 100
+        
+        # Calcular el ajuste para cada tamiz basado en su aporte proporcional al error
+        df["Ajuste (g)"] = (df["% Aporte Inicial"] / 100) * diferencia_neta
+        
+        # Aplicar el ajuste para obtener la masa corregida
+        df["Masa Corregida (g)"] = df["Masa Retenida (g)"] + df["Ajuste (g)"]
+        
+        mensaje_correccion = (
+            f"La masa final medida ({masa_final_medida:.2f} g) no coincide con la inicial ({masa_inicial:.2f} g). "
+            f"Se ha distribuido una diferencia de {diferencia_neta:.2f} g proporcionalmente al aporte de cada tamiz."
         )
-    
-    # Mostrar resultados
-    st.success("Parámetros granulométricos calculados:")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("D10 (mm)", f"{D10:.4f}")
-    col2.metric("D30 (mm)", f"{D30:.4f}")
-    col3.metric("D60 (mm)", f"{D60:.4f}")
-    
-    col1, col2 = st.columns(2)
-    col1.metric("Coeficiente de Uniformidad (Cu)", f"{Cu:.2f}")
-    col2.metric("Coeficiente de Curvatura (Cc)", f"{Cc:.2f}")
-    
-    # Clasificación según el tipo de suelo
-    pasa_N4 = df.loc[df['Tamiz'] == 'N°4', 'Pasa (%)'].values[0]
-    pasa_N200 = df.loc[df['Tamiz'] == 'N°200', 'Pasa (%)'].values[0]
-    
-    # Determinar si es grava o arena
-    if pasa_N4 < 50:  # Menos del 50% pasa el tamiz N°4 (4.75 mm)
-        tipo_suelo = "GRAVA"
-        bien_gradada = (Cu >= 4) and (1 < Cc < 3)
     else:
-        tipo_suelo = "ARENA"
-        bien_gradada = (Cu >= 6) and (1 < Cc < 3)
+        # Si no se necesita corrección, la masa corregida es la misma que la retenida
+        df["Masa Corregida (g)"] = df["Masa Retenida (g)"]
+        mensaje_correccion = "La masa final coincide con la inicial. No se aplicó corrección."
+
+    # 3. Cálculos de Porcentajes
+    # Después de la corrección, la suma de "Masa Corregida" debe ser igual a "masa_inicial"
+    # Por lo tanto, usamos masa_inicial como la base para los porcentajes.
+    df["% Retenido"] = (df["Masa Corregida (g)"] / masa_inicial) * 100
+    df["% Ret. Acumulado"] = df["% Retenido"].cumsum()
+    df["% Pasa"] = 100 - df["% Ret. Acumulado"]
     
-    # Mostrar clasificación
-    st.subheader("Clasificación del Suelo")
-    st.info(f"**Tipo predominante:** {tipo_suelo}")
-    st.info(f"**Porcentaje que pasa el tamiz N°4 (4.75 mm):** {pasa_N4:.2f}%")
-    st.info(f"**Porcentaje que pasa el tamiz N°200 (0.075 mm):** {pasa_N200:.2f}%")
+    # Asegurar que el % Pasa del fondo sea exactamente 0 y el acumulado 100
+    df.loc[df["Tamiz"] == "Fondo", "% Pasa"] = 0.0
+    df.loc[df["% Ret. Acumulado"] > 99.99, "% Ret. Acumulado"] = 100.0 # Ajuste final por precisión
+    df.loc[df["% Pasa"] < 0.01, "% Pasa"] = 0.0
     
-    # Mostrar resultado de la clasificación
-    if bien_gradada:
-        st.success(f"**CLASIFICACIÓN:** El suelo es una {tipo_suelo} BIEN GRADADA")
-        st.markdown(f"**Criterio cumplido:** Cu ≥ {'4' if tipo_suelo == 'GRAVA' else '6'} y 1 < Cc < 3")
+    # Seleccionar y reordenar columnas para la visualización final
+    columnas_finales = [
+        "Tamiz", "Apertura (mm)", "Masa Retenida (g)", "Masa Corregida (g)",
+        "% Retenido", "% Ret. Acumulado", "% Pasa"
+    ]
+    df_final = df[columnas_finales]
+
+    return df_final, mensaje_correccion
+
+
+def calcular_diametros(df):
+    """Calcula D10, D30, D60 por interpolación logarítmica."""
+    df_interp = df[df["Tamiz"] != "Fondo"].copy()
+    log_apertura = np.log10(df_interp["Apertura (mm)"])
+    porcentaje_pasa = df_interp["% Pasa"]
+    y_interp = porcentaje_pasa.values[::-1]
+    x_interp = log_apertura.values[::-1]
+    
+    try:
+        log_d10 = np.interp(10, y_interp, x_interp)
+        log_d30 = np.interp(30, y_interp, x_interp)
+        log_d60 = np.interp(60, y_interp, x_interp)
+        d10 = 10**log_d10
+        d30 = 10**log_d30
+        d60 = 10**log_d60
+        return d10, d30, d60
+    except Exception as e:
+        st.error(f"No se pudieron calcular los diámetros. Verifica que los datos cubran los rangos de 10%, 30% y 60% que pasa. Error: {e}")
+        return None, None, None
+
+def calcular_coeficientes(d10, d30, d60):
+    """Calcula los coeficientes de Uniformidad y Curvatura."""
+    cu = cc = None
+    if d10 and d10 > 0:
+        cu = d60 / d10
+        if d60 > 0:
+            cc = (d30**2) / (d10 * d60)
+    return cu, cc
+
+def clasificar_suelo(df, cu, cc):
+    """Clasifica el suelo según su granulometría (basado en USCS)."""
+    try:
+        pasa_n4 = df.loc[df["Tamiz"] == "No. 4", "% Pasa"].iloc[0]
+        pasa_n200 = df.loc[df["Tamiz"] == "No. 200", "% Pasa"].iloc[0]
+    except IndexError:
+        st.error("No se encontraron los tamices No. 4 o No. 200 en los datos para la clasificación.")
+        return None, None, None, "Error en clasificación"
+        
+    porc_grava = 100 - pasa_n4
+    porc_arena = pasa_n4 - pasa_n200
+    porc_finos = pasa_n200
+    
+    gradacion = "No aplica (Suelo con alto contenido de finos)"
+    if porc_finos < 5: # Criterio para suelos limpios
+        fraccion_gruesa = porc_grava + porc_arena
+        if porc_grava > porc_arena: # Suelo predominantemente grava
+            if cu and cc and cu >= 4 and 1 <= cc <= 3:
+                gradacion = "Suelo Bien Gradado (GW - Grava bien gradada)"
+            else:
+                gradacion = "Suelo Mal Gradado (GP - Grava mal gradada)"
+        else: # Suelo predominantemente arena
+            if cu and cc and cu >= 6 and 1 <= cc <= 3:
+                gradacion = "Suelo Bien Gradado (SW - Arena bien gradada)"
+            else:
+                gradacion = "Suelo Mal Gradado (SP - Arena mal gradada)"
+    elif porc_finos > 12:
+        gradacion = "Suelo con alto contenido de finos (SM, SC, GM, GC). Se requiere análisis de plasticidad."
+    else: # Entre 5% y 12% de finos
+        gradacion = "Suelo con gradación de frontera. Se requiere análisis de plasticidad para una clasificación completa."
+    
+    return porc_grava, porc_arena, porc_finos, gradacion
+
+
+def generar_grafica(df):
+    """Genera la curva granulométrica."""
+    df_plot = df[df['Apertura (mm)'] > 0]
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(df_plot["Apertura (mm)"], df_plot["% Pasa"], marker='o', linestyle='-', color='b')
+    ax.set_xscale('log')
+    ax.set_xlabel("Apertura del Tamiz (mm) - Escala Logarítmica", fontsize=12)
+    ax.set_ylabel("% Que Pasa", fontsize=12)
+    ax.set_title("Curva Granulométrica", fontsize=14, fontweight='bold')
+    ax.grid(True, which="both", linestyle='--', linewidth=0.5)
+    plt.gca().invert_xaxis()
+    
+    return fig
+
+# --- Interfaz de la Aplicación ---
+
+st.title("Análisis Granulométrico - Geotecnia I")
+st.markdown("""
+Esta aplicación realiza un análisis granulométrico completo a partir de la masa retenida en cada tamiz.
+**El método de corrección de masas ha sido actualizado para distribuir el error proporcionalmente**, como es estándar en la práctica de laboratorio.
+""")
+
+# --- Barra Lateral para Entradas ---
+with st.sidebar:
+    st.header("1. Datos de Entrada")
+    masa_inicial = st.number_input("Masa Inicial Total de la Muestra (g)", min_value=0.1, value=500.0, step=10.0)
+    
+    st.header("2. Masa Retenida en Tamices (g)")
+    masas_retenidas_input = {}
+    with st.expander("Ingresar Masas Retenidas", expanded=True):
+        for tamiz_nombre in TAMICES.keys():
+            # Excluimos "Fondo" del bucle principal para manejarlo por separado
+            if tamiz_nombre != "Fondo":
+                masas_retenidas_input[tamiz_nombre] = st.number_input(
+                    f"Tamiz {tamiz_nombre}", min_value=0.0, value=0.0, key=tamiz_nombre
+                )
+    
+    # Se calcula una sugerencia para el fondo, pero el usuario puede modificarla
+    suma_parcial = sum(masas_retenidas_input.values())
+    masa_fondo_sugerida = masa_inicial - suma_parcial if masa_inicial >= suma_parcial else 0.0
+    masas_retenidas_input["Fondo"] = st.number_input(
+        "Fondo", min_value=0.0, value=masa_fondo_sugerida, key="Fondo",
+        help="Puede ajustar este valor. Si la suma total no coincide con la masa inicial, se aplicará una corrección."
+    )
+
+    boton_calcular = st.button("📊 Calcular Análisis", type="primary")
+
+# --- Área Principal para Resultados ---
+if boton_calcular:
+    if masa_inicial <= 0 or sum(masas_retenidas_input.values()) <= 0:
+        st.error("La masa inicial y la suma de masas retenidas deben ser mayores que cero.")
     else:
-        st.warning("**CLASIFICACIÓN:** El suelo es MAL GRADADO")
-        if tipo_suelo == "GRAVA":
-            st.markdown("**Criterio para grava bien gradada:** Cu ≥ 4 y 1 < Cc < 3")
-            if Cu < 4:
-                st.markdown(f"- ✖ Cu = {Cu:.2f} < 4")
-            else:
-                st.markdown(f"- ✔ Cu = {Cu:.2f} ≥ 4")
-            if not (1 < Cc < 3):
-                st.markdown(f"- ✖ Cc = {Cc:.2f} no está entre 1 y 3")
-            else:
-                st.markdown(f"- ✔ Cc = {Cc:.2f} entre 1 y 3")
-        else:
-            st.markdown("**Criterio para arena bien gradada:** Cu ≥ 6 y 1 < Cc < 3")
-            if Cu < 6:
-                st.markdown(f"- ✖ Cu = {Cu:.2f} < 6")
-            else:
-                st.markdown(f"- ✔ Cu = {Cu:.2f} ≥ 6")
-            if not (1 < Cc < 3):
-                st.markdown(f"- ✖ Cc = {Cc:.2f} no está entre 1 y 3")
-            else:
-                st.markdown(f"- ✔ Cc = {Cc:.2f} entre 1 y 3")
-    
-except Exception as e:
-    st.error(f"Error en interpolación: {str(e)}. Verifique los datos de entrada. Asegúrese de que los datos de porcentaje que pasa sean adecuados para la interpolación.")
+        st.header("Resultados del Análisis")
+        
+        df_resultados, mensaje = calcular_granulometria(masas_retenidas_input, masa_inicial)
+        
+        st.info(mensaje)
 
-# Mostrar gráfica
-st.plotly_chart(fig, use_container_width=True)
+        st.subheader("Tabla de Datos y Cálculos")
+        st.dataframe(df_resultados.style.format({
+            "Apertura (mm)": "{:.3f}",
+            "Masa Retenida (g)": "{:.2f}",
+            "Masa Corregida (g)": "{:.2f}",
+            "% Retenido": "{:.2f}%",
+            "% Ret. Acumulado": "{:.2f}%",
+            "% Pasa": "{:.2f}%"
+        }))
+        
+        d10, d30, d60 = calcular_diametros(df_resultados)
+        
+        if d10 is not None:
+            cu, cc = calcular_coeficientes(d10, d30, d60)
 
-# Instrucciones de uso
-with st.expander("Instrucciones de Uso"):
-    st.markdown("""
-    ## Método de Corrección de Masas
-    Cuando la suma de masas retenidas no coincide con la masa total, aplicamos el siguiente método de corrección:
-    
-    ```
-    Diferencia = Masa Total - Σ(Masas Retenidas)
-    Masa Corregida = Masa Original + (Masa Original / Σ(Masas Retenidas)) * Diferencia
-    ```
-    
-    **Ejemplo:**
-    - Masa total: 500 gr
-    - Suma de masas retenidas: 497.5 gr
-    - Diferencia: 500 - 497.5 = 2.5 gr
-    
-    Para un tamiz con masa retenida de 18 gr:
-    ```
-    Corrección = (18 / 497.5) * 2.5 = 0.0905 gr
-    Masa Corregida = 18 + 0.0905 = 18.0905 gr
-    ```
-    
-    Para un tamiz con masa retenida de 90 gr:
-    ```
-    Corrección = (90 / 497.5) * 2.5 = 0.4523 gr
-    Masa Corregida = 90 + 0.4523 = 90.4523 gr
-    ```
-    
-    La suma de todas las masas corregidas será exactamente 500 gr.
-    
-    ## Control de Corrección
-    - **Diferencias > 1g**: Se aplica corrección automáticamente
-    - **Diferencias ≤ 1g**: 
-        - Por defecto no se aplica corrección
-        - Active la casilla "Aplicar corrección de masas" para forzar la corrección
-    
-    ## Pasos del Análisis
-    1. Ingrese la **masa total** de la muestra en gramos
-    2. Ingrese las **masas retenidas** en cada tamiz
-    3. Si la suma difiere de la masa total:
-       - Se mostrará advertencia y opción de corrección
-       - Active "Aplicar corrección de masas" si desea corregir diferencias pequeñas
-    4. Los resultados se calcularán con las masas corregidas (si se aplicó)
-    5. La curva mostrará las líneas para D₁₀, D₃₀ y D₆₀
-    6. Se calcularán los coeficientes de uniformidad (Cu) y curvatura (Cc)
-    7. Clasificación según:
-        - **Grava bien gradada:** Cu ≥ 4 y 1 < Cc < 3
-        - **Arena bien gradada:** Cu ≥ 6 y 1 < Cc < 3
-        - **Mal gradado:** No cumple los criterios anteriores
-    
-    **Fórmulas:**
-    - Cu = D₆₀/D₁₀
-    - Cc = (D₃₀)²/(D₁₀·D₆₀)
-    
-    ## Características de la Gráfica
-    - Eje X invertido (de mayor a menor tamaño)
-    - Escala logarítmica en el eje X
-    - Líneas de referencia para D10, D30, D60
-    """)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("Diámetros Característicos")
+                st.metric("D10 (mm)", f"{d10:.3f}")
+                st.metric("D30 (mm)", f"{d30:.3f}")
+                st.metric("D60 (mm)", f"{d60:.3f}")
+
+            with col2:
+                st.subheader("Coeficientes Geotécnicos")
+                if cu is not None: st.metric("Coeficiente de Uniformidad (Cu)", f"{cu:.2f}")
+                else: st.warning("No se pudo calcular Cu.")
+                
+                if cc is not None: st.metric("Coeficiente de Curvatura (Cc)", f"{cc:.2f}")
+                else: st.warning("No se pudo calcular Cc.")
+            
+            st.subheader("Clasificación del Suelo")
+            grava, arena, finos, gradacion = clasificar_suelo(df_resultados, cu, cc)
+            
+            c3, c4, c5 = st.columns(3)
+            c3.metric("% Grava (> 4.75mm)", f"{grava:.2f}%")
+            c4.metric("% Arena (4.75mm a 0.075mm)", f"{arena:.2f}%")
+            c5.metric("% Finos (< 0.075mm)", f"{finos:.2f}%")
+            
+            st.markdown(f"**Análisis de Gradación:**")
+            if "Bien Gradado" in gradacion: st.success(f"✔️ {gradacion}")
+            elif "Mal Gradado" in gradacion: st.warning(f"⚠️ {gradacion}")
+            else: st.info(f"ℹ️ {gradacion}")
+            st.caption("Nota: La clasificación de gradación es una simplificación del Sistema Unificado de Clasificación de Suelos (USCS). Una clasificación completa para suelos con más de 5% de finos requiere conocer los límites de Atterberg.")
+
+        st.subheader("Curva Granulométrica")
+        grafica = generar_grafica(df_resultados)
+        st.pyplot(grafica)
